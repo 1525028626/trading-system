@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.env
+
+# Project Data
+data_cache/
+scan_result_*.csv
+ai_trading_journal.csv
+
+# Models (Large files)
+*.pth
+*.backtest_final.pth
+
+# Logs and others
+*.log
+.vscode/
+.idea/
