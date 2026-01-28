@@ -315,6 +315,14 @@ def train_model(model_type=None, mode=None):
     # 使用 AdamW 优化器
     optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-4)
     
+    # 引入 OneCycleLR 学习率调度器
+    scheduler = optim.lr_scheduler.OneCycleLR(
+        optimizer, max_lr=LEARNING_RATE, steps_per_epoch=len(dataloader), epochs=EPOCHS, pct_start=0.3
+    )
+    
+    # 初始化 Loss，reduction='none' 以便进行逐样本加权
+    criterion = nn.HuberLoss(reduction='none')
+    
     print(f"\n>>> 开始流式训练 (Stream Training)...")
     
     for epoch in range(EPOCHS):
@@ -328,38 +336,38 @@ def train_model(model_type=None, mode=None):
         
         for X_batch_list, y_batch_list in pbar:
             # X_batch_list 是一个列表，包含了一只股票的所有切片样本
-            # 例如: Tensor shape [200, 60, 30]
             
             if len(X_batch_list) == 0: continue
             
             # 将列表转为 Tensor
-            # 注意：这里只加载一只股票的数据到 GPU，内存占用极小
             X_stock = torch.tensor(np.array(X_batch_list), dtype=torch.float32).to(Config.DEVICE)
             y_stock = torch.tensor(np.array(y_batch_list), dtype=torch.float32).view(-1, 1).to(Config.DEVICE)
-            
-            # 在股票内部进行小批量训练 (Mini-batch within Stock)
-            # 或者直接把整只股票作为一个 Batch 训练 (如果样本数不多，比如 200 个，完全可以)
-            # 为了稳定，我们直接整只股票训练
             
             optimizer.zero_grad()
             out = model(X_stock)
             
-            # === Loss 计算 ===
-            base_loss = criterion(out, y_stock)
+            # === Loss 计算 (Element-wise) ===
+            # 1. 基础 Loss (逐样本计算，不求平均)
+            pixel_loss = criterion(out, y_stock)
             
-            # 获取输入序列的最后一天收盘价 (作为基准)
+            # 2. 获取基准价格 (Last Close)
             close_idx = DataProcessor.FEATURE_COLS.index('close')
             last_close = X_stock[:, -1, close_idx].view(-1, 1)
             
             diff_pred = out - last_close
             diff_real = y_stock - last_close
             
-            penalty = torch.where(diff_pred * diff_real < 0, base_loss * 2.0, torch.zeros_like(base_loss))
-            loss = base_loss + penalty.mean()
+            # 3. 动态加权: 方向错误惩罚 3 倍，方向正确保持 1 倍
+            # 另外: 如果真实波动很小 (震荡市)，稍微降低权重，避免噪声干扰
+            penalty_weight = torch.where(diff_pred * diff_real < 0, 3.0, 1.0)
+            
+            # 4. 最终 Loss = 加权后的 Mean
+            loss = (pixel_loss * penalty_weight).mean()
             
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
+            scheduler.step() # 更新学习率
             
             # 统计
             current_loss = loss.item() * len(X_stock)
@@ -370,7 +378,11 @@ def train_model(model_type=None, mode=None):
             total_samples += len(X_stock)
             
             # 更新进度条后缀
-            pbar.set_postfix({'Loss': f"{total_loss/total_samples:.6f}", 'Acc': f"{total_acc/total_samples*100:.2f}%"})
+            pbar.set_postfix({
+                'Loss': f"{total_loss/total_samples:.6f}", 
+                'Acc': f"{total_acc/total_samples*100:.2f}%",
+                'LR': f"{scheduler.get_last_lr()[0]:.6f}"
+            })
 
         # Epoch 结束打印
         avg_loss = total_loss / total_samples if total_samples > 0 else 0

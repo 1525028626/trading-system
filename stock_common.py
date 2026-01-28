@@ -154,11 +154,11 @@ class Config:
     # 自动获取维度，消除硬编码
     INPUT_DIM = DataProcessor.get_input_dim()  
     
-    # Transformer 特有配置
-    d_model = 64      # 嵌入维度
-    nhead = 4         # 多头注意力头数
-    num_layers = 3    # Encoder 层数
-    dropout = 0.1
+    # Transformer 特有配置 (增强版)
+    d_model = 128     # 嵌入维度 (64 -> 128)
+    nhead = 8         # 多头注意力头数 (4 -> 8)
+    num_layers = 4    # Encoder 层数 (3 -> 4)
+    dropout = 0.2     # 增加 Dropout 防止过拟合
     
     OUTPUT_DIM = 1    # 输出维度 (预测价格)
     LOOKBACK = 60     # 时间窗口长度 (过去 60 天预测未来)
