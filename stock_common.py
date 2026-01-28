@@ -27,7 +27,8 @@ class DataProcessor:
         'K','D','J',
         'BOLL_MID','BOLL_UP','BOLL_LOW',
         'OBV','ATR','ICH_CONV','ICH_BASE',
-        'market_close'
+        'market_close',
+        'log_ret', 'log_ret_5', 'volatility_20' # 新增收益率与波动率特征
     ]
     
     # 需要进行 Log 变换的列 (价格和大幅值数据)
@@ -319,6 +320,18 @@ class FeatureEngineer:
         twenty_six_period_high = high.rolling(window=26).max()
         twenty_six_period_low = low.rolling(window=26).min()
         df['ICH_BASE'] = (twenty_six_period_high + twenty_six_period_low) / 2
+        
+        # 9. Returns & Volatility (新增核心特征)
+        # Log Return = ln(close_t / close_{t-1})
+        # 避免除以0或负数 (虽然close通常为正)
+        safe_close = close.replace(0, np.nan).ffill()
+        df['log_ret'] = np.log(safe_close / safe_close.shift(1))
+        
+        # 5日累计 Log Return
+        df['log_ret_5'] = df['log_ret'].rolling(window=5).sum()
+        
+        # 20日波动率 (Volatility)
+        df['volatility_20'] = df['log_ret'].rolling(window=20).std()
         
         df.dropna(inplace=True)
         return df
